@@ -16,6 +16,7 @@ import {
 import { RecOutputService } from '../recording-output';
 import { OutputService } from '../outputs';
 import { RtmpOutputService } from '../rtmp-output';
+import { Watch } from 'vue-property-decorator';
 
 enum EOBSOutputType {
   Streaming = 'streaming',
@@ -65,8 +66,30 @@ export class StreamingService extends StatefulService<IStreamingServiceState>
 
   async initialize() {
     await this.rtmpOutputService.initialize();
+    await this.recOutputService.initialize();
+
+    this.handleRtmpOutputChange();
+    this.handleRecOutputChange();
+
+    this.recOutputService.subscribeOutputChange(() =>
+      this.handleRecOutputChange()
+    );
+
+    this.rtmpOutputService.subscribeOutputChange(() =>
+        this.handleRtmpOutputChange()
+    );
+  }
+
+  get recOutputId() {
+    return this.recOutputService.state.recOutputId;
+  }
+
+  get rtmpOutputId() {
+    return this.rtmpOutputService.state.rtmpOutputId;
+  }
+
+  handleRtmpOutputChange() {
     const streamOutputId = this.rtmpOutputService.getOutputId();
-    const recOutputId = this.recOutputService.getOutputId();
 
     this.outputService.onStart(streamOutputId, id => {
       this.handleOBSOutputSignal({
@@ -99,8 +122,10 @@ export class StreamingService extends StatefulService<IStreamingServiceState>
         code: 0
       });
     });
+  }
 
-    this.outputService.onStart(recOutputId, id => {
+  handleRecOutputChange() {
+    this.outputService.onStart(this.recOutputId, id => {
       this.handleOBSOutputSignal({
         type: EOBSOutputType.Recording,
         signal: EOBSOutputSignal.Start,
@@ -108,7 +133,7 @@ export class StreamingService extends StatefulService<IStreamingServiceState>
       });
     });
 
-    this.outputService.onStop(recOutputId, (id, code) => {
+    this.outputService.onStop(this.recOutputId, (id, code) => {
       this.handleOBSOutputSignal({
         type: EOBSOutputType.Recording,
         signal: EOBSOutputSignal.Stop,
@@ -166,6 +191,12 @@ export class StreamingService extends StatefulService<IStreamingServiceState>
         'prevent-display-sleep'
       );
 
+      this.handleOBSOutputSignal({
+        type: EOBSOutputType.Streaming,
+        signal: EOBSOutputSignal.Starting,
+        code: 0
+      });
+
       if (!this.rtmpOutputService.start()) {
         alert(
           `Failed to start output: ${this.outputService.getLastError(
@@ -174,12 +205,6 @@ export class StreamingService extends StatefulService<IStreamingServiceState>
         );
         return;
       }
-
-      this.handleOBSOutputSignal({
-        type: EOBSOutputType.Streaming,
-        signal: EOBSOutputSignal.Starting,
-        code: 0
-      });
 
       const recordWhenStreaming = Settings.RecordWhenStreaming;
 

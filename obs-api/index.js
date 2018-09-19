@@ -4,13 +4,9 @@ var electron = window['require']('electron');
 var remote = electron.remote;
 var obs = remote.require('obs-studio-node');
 /* Convenient paths to modules */
-exports.DefaultD3D11Path = obs.DefaultD3D11Path;
-exports.DefaultDrawPluginPath = obs.DefaultDrawPluginPath;
-exports.DefaultBinPath = obs.DefaultBinPath;
-exports.DefaultDataPath = obs.DefaultDataPath;
-exports.DefaultPluginPath = obs.DefaultPluginPath;
-exports.DefaultPluginDataPath = obs.DefaultPluginDataPath;
 exports.Global = obs.Global;
+exports.Encoder = obs.Encoder;
+exports.Source = obs.Source;
 exports.InputFactory = obs.InputFactory;
 exports.SceneFactory = obs.SceneFactory;
 exports.FilterFactory = obs.FilterFactory;

@@ -10,7 +10,12 @@ import {
 import path from 'path';
 import Vue from 'vue';
 import PouchDB from 'pouchdb';
-import { ISettings, IService, ServiceFactory } from 'services/obs-api';
+import {
+  ISettings,
+  IService,
+  IConfigurable,
+  ServiceFactory
+} from 'services/obs-api';
 
 type TProviderServiceState = Dictionary<IFProvider>;
 
@@ -19,7 +24,7 @@ interface IProviderContent {
   settings: ISettings;
 }
 
-interface IFProvider extends IProviderContent{
+interface IFProvider extends IProviderContent {
   isPersistent: boolean;
 }
 
@@ -34,6 +39,15 @@ export class ProviderService extends StatefulService<TProviderServiceState> {
 
   static getUniqueId(): string {
     return 'provider_' + ipcRenderer.sendSync('getUniqueId');
+  }
+
+  checkId(uniqueId: string) {
+    if (!this.state[uniqueId]) {
+      console.warn(`${uniqueId} doesn't exist!`);
+      return false;
+    }
+
+    return true;
   }
 
   private queueChange(uniqueId: string) {
@@ -120,6 +134,11 @@ export class ProviderService extends StatefulService<TProviderServiceState> {
     if (settings) obsService = ServiceFactory.create(type, uniqueId, settings);
     else obsService = ServiceFactory.create(type, uniqueId);
 
+    if (!obsService) {
+      console.warn(`Failed to create service with type ${type}`);
+      return false;
+    }
+
     const provider: IFProvider = {
       type,
       settings,
@@ -137,9 +156,15 @@ export class ProviderService extends StatefulService<TProviderServiceState> {
     this.queueChange(uniqueId);
 
     this.propManagers[uniqueId] = new DefaultManager(obsService, {});
+    return true;
   }
 
   removeProvider(uniqueId: string) {
+    if (!this.state[uniqueId]) {
+      console.warn(`${uniqueId} doesn't exist!`);
+      return;
+    }
+
     const service = ServiceFactory.fromName(uniqueId);
     service.release();
 
@@ -148,7 +173,7 @@ export class ProviderService extends StatefulService<TProviderServiceState> {
     this.propManagers[uniqueId].destroy();
     delete this.propManagers[uniqueId];
 
-    if (!this.state.isPersistent) return;
+    if (!this.state[uniqueId].isPersistent) return;
     this.db.queueDeletion(uniqueId);
   }
 
@@ -160,12 +185,34 @@ export class ProviderService extends StatefulService<TProviderServiceState> {
     return false;
   }
 
+  updateSettings(uniqueId: string, patch: any) {
+    if (!this.checkId(uniqueId)) return;
+
+    const configurable: IConfigurable = ServiceFactory.fromName(uniqueId);
+    const settings = Object.assign({}, configurable.settings, patch);
+
+    configurable.update(settings);
+    console.log(settings);
+    this.UPDATE_SETTINGS(uniqueId, settings);
+    this.queueChange(uniqueId);
+  }
+
   /* We use the property form data 1:1 for Services. */
   getPropertyFormData(uniqueId: string) {
+    if (!this.state[uniqueId]) {
+      console.warn(`${uniqueId} doesn't exist!`);
+      return null;
+    }
+
     return this.propManagers[uniqueId].getPropertiesFormData();
   }
 
   setPropertyFormData(uniqueId: string, formData: TFormData) {
+    if (!this.state[uniqueId]) {
+      console.warn(`${uniqueId} doesn't exist!`);
+      return;
+    }
+
     this.propManagers[uniqueId].setPropertiesFormData(formData);
 
     const settings = ServiceFactory.fromName(uniqueId).settings;

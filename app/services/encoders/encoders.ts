@@ -20,9 +20,11 @@ import {
   ServiceFactory,
   EPropertyType,
   EListFormat,
-  ISettings
+  ISettings,
+  Encoder
 } from 'services/obs-api';
 import path from 'path';
+import { isNumberProperty, isListProperty } from 'util/properties-type-guards';
 
 type TEncoderServiceState = Dictionary<IFEncoder>;
 
@@ -43,20 +45,62 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     path.join(remote.app.getPath('userData'), 'Encoders')
   );
 
-  private aacBitrateMap: string[] = [];
+  /* Unfortunately, since JS won't hold strings by reference,
+   * we need to reference these strings by offset else we'll 
+   * be taking up kilobytes more worth of memory. */
+  private aacEncoders = ['ffmpeg_aac', 'mf_aac', 'libfdk_aac', 'CoreAudio_AAC'];
+  private aacBitrateMap = new Map<number, number>();
 
   private populateAACBitrateMap() {
     const types = AudioEncoderFactory.types();
 
-    for (let i = 0; i < types.length; ++i) {
+    for (let offset = 0; offset < this.aacEncoders.length; ++offset) {
+      /* This check is to make sure the encoder exists more than
+       * it is to check that it supports the AAC codec. */
+      if (Encoder.getCodec(this.aacEncoders[offset]) !== 'AAC') continue;
 
+      const properties = Encoder.getProperties(this.aacEncoders[offset]);
+      const bitrateProp = properties.get('bitrate');
+
+      /* Different encoders use list or integer based properties. 
+       * We need to handle both. */
+      if (isNumberProperty(bitrateProp)) {
+        const max = bitrateProp.details.max;
+        const min = bitrateProp.details.min;
+        const step = bitrateProp.details.step;
+
+        for (let i = min; i <= max; i += step) {
+          this.aacBitrateMap.set(i, offset);
+        }
+      } else if (isListProperty(bitrateProp)) {
+        const items = bitrateProp.details.items;
+
+        for (let i = 0; i < items.length; ++i) {
+          /* Technically, we should check for disabled items.
+           * The bindings don't expose that quite yet. TODO FIXME */
+          this.aacBitrateMap.set(items[i].value as number, offset);
+        }
+      } else {
+        console.warn(
+          `${this.aacEncoders[offset]} uses unknown bitrate property type`
+        );
+      }
+
+      /* Sort the map for convenience */
+
+      this.aacBitrateMap = new Map(
+        Array.from(this.aacBitrateMap.entries()).sort((a, b) => a[0] - b[0])
+      );
+    }
+  }
+
+  checkId(uniqueId: string) {
+    if (!this.state[uniqueId]) {
+      console.warn(`${uniqueId} doesn't exist!`);
+      return false;
     }
 
-    const encoders = ['ffmpeg_aac', 'mf_aac', 'libfdk_aac', 'CoreAudio_AAC'];
-
-    for (let i = 0; i < encoders.length; ++i) {
-        
-    }
+    return true;
   }
 
   private queueChange(uniqueId: string) {
@@ -73,11 +117,11 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     this.db.queueChange(uniqueId, change);
   }
 
-  private async queueDeletion(uniqueId: string) {
+  private queueDeletion(uniqueId: string) {
     this.propManagers[uniqueId].destroy();
     delete this.propManagers[uniqueId];
 
-    if (this.state.isPersistent) this.db.queueDeletion(uniqueId);
+    if (this.state[uniqueId].isPersistent) this.db.queueDeletion(uniqueId);
 
     this.REMOVE_ENCODER(uniqueId);
   }
@@ -129,6 +173,7 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     if (this.initialized) return;
 
     await this.db.initialize(response => this.syncConfig(response));
+    this.populateAACBitrateMap();
 
     this.initialized = true;
   }
@@ -166,14 +211,20 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     type: string,
     uniqueId: string,
     isPersistent?: boolean,
+    track?: number,
     settings?: ISettings
   ) {
     let obsEncoder: IAudioEncoder = null;
 
     if (isPersistent === undefined) isPersistent = true;
     if (settings)
-      obsEncoder = AudioEncoderFactory.create(type, uniqueId, settings);
-    else obsEncoder = AudioEncoderFactory.create(type, uniqueId);
+      obsEncoder = AudioEncoderFactory.create(type, uniqueId, settings, track);
+    else obsEncoder = AudioEncoderFactory.create(type, uniqueId, {}, track);
+
+    if (!obsEncoder) {
+      console.warn(`Failed to create audio encoder with type ${type}`);
+      return false;
+    }
 
     const encoder: IFEncoder = {
       settings,
@@ -193,6 +244,8 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
       AudioEncoderFactory.fromName(uniqueId),
       {}
     );
+
+    return true;
   }
 
   addVideoEncoder(
@@ -207,6 +260,11 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     if (settings)
       obsEncoder = VideoEncoderFactory.create(type, uniqueId, settings);
     else obsEncoder = VideoEncoderFactory.create(type, uniqueId);
+
+    if (!obsEncoder) {
+      console.warn(`Failed to create video encoder with type ${type}`);
+      return false;
+    }
 
     const encoder: IFEncoder = {
       settings,
@@ -226,9 +284,13 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
       VideoEncoderFactory.fromName(uniqueId),
       {}
     );
+
+    return true;
   }
 
   removeAudioEncoder(uniqueId: string) {
+    if (!this.checkId(uniqueId)) return;
+
     const encoder = AudioEncoderFactory.fromName(uniqueId);
     encoder.release();
 
@@ -236,26 +298,12 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
   }
 
   removeVideoEncoder(uniqueId: string) {
+    if (!this.checkId(uniqueId)) return;
+
     const encoder = VideoEncoderFactory.fromName(uniqueId);
     encoder.release();
 
     this.queueDeletion(uniqueId);
-  }
-
-  isAudioEncoder(uniqueId: string) {
-    const obsEncoder = AudioEncoderFactory.fromName(uniqueId);
-
-    if (obsEncoder) return true;
-
-    return false;
-  }
-
-  isVideoEncoder(uniqueId: string) {
-    const obsEncoder = VideoEncoderFactory.fromName(uniqueId);
-
-    if (obsEncoder) return true;
-
-    return false;
   }
 
   getAvailableVideoEncoders(): string[] {
@@ -271,28 +319,45 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     return AudioEncoderFactory.types();
   }
 
-  setBitrate(uniqueId: string, bitrate: number) {
+  updateSettings(uniqueId: string, patch: any) {
     const encoder = this.state[uniqueId];
+
+    if (!this.checkId(uniqueId)) return;
 
     let obsEncoder = null;
 
     if (encoder.isAudio) obsEncoder = AudioEncoderFactory.fromName(uniqueId);
     else obsEncoder = VideoEncoderFactory.fromName(uniqueId);
 
-    const settings = obsEncoder.settings;
-    settings['bitrate'] = bitrate;
+    const newSettings = obsEncoder.settings;
+    Object.assign(newSettings, patch);
 
-    this.UPDATE_SETTINGS(uniqueId, settings);
+    obsEncoder.update(newSettings);
+  }
+
+  updateSettingsDirect(uniqueId: string, settings: any) {
+    const encoder = this.state[uniqueId];
+
+    if (!this.checkId(uniqueId)) return;
+
+    let obsEncoder = null;
+
+    if (encoder.isAudio) obsEncoder = AudioEncoderFactory.fromName(uniqueId);
+    else obsEncoder = VideoEncoderFactory.fromName(uniqueId);
     obsEncoder.update(settings);
-    this.queueChange(uniqueId);
   }
 
   getPropertyFormData(uniqueId: string) {
+    if (!this.checkId(uniqueId)) return null;
+
     return this.propManagers[uniqueId].getPropertiesFormData();
   }
 
   setPropertyFormData(uniqueId: string, formData: TFormData) {
     const encoder = this.state[uniqueId];
+
+    if (!this.checkId(uniqueId)) return;
+
     this.propManagers[uniqueId].setPropertiesFormData(formData);
 
     let settings = null;
@@ -305,5 +370,15 @@ export class EncoderService extends StatefulService<TEncoderServiceState> {
     this.queueChange(uniqueId);
   }
 
-  getBestAudioEncoderId() {}
+  getBestAACEncoderForBitrate(bitrate: number): string {
+    const offset = this.aacBitrateMap.get(bitrate);
+
+    if (offset == null) return 'ffmpeg_aac';
+
+    return this.aacEncoders[offset];
+  }
+
+  getSupportedAudioBitrates(): number[] {
+    return Array.from(this.aacBitrateMap.keys());
+  }
 }

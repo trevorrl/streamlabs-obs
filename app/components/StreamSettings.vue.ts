@@ -62,5 +62,10 @@ export default class StreamSettings extends Vue {
 
     this.providerService.setPropertyFormData(providerId, formData);
     this.settingsFormData = this.getPropertyFormData();
+
+    /* The following code makes me violently ill */
+    if (this.serviceTypeValue !== EProviderMode.Common) return;
+
+    this.rtmpOutputService.notifyServiceChangeIGuess();
   }
 }

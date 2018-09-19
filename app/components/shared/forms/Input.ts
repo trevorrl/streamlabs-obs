@@ -1,7 +1,7 @@
 import _ from 'lodash';
 import Vue from 'vue';
 import { Prop } from 'vue-property-decorator';
-import * as obs from '../../../../obs-api';
+import * as obs from 'services/obs-api';
 import {
   isListProperty,
   isEditableListProperty,
@@ -9,22 +9,29 @@ import {
   isTextProperty,
   isFontProperty,
   isPathProperty
-} from '../../../util/properties-type-guards';
+} from 'util/properties-type-guards';
+
+import { parsePathFilters } from 'services/common-properties';
 
 /**
  * OBS values that frontend application can change
  */
-export declare type TObsValue = number | string | boolean | IFont | TObsStringList;
+export declare type TObsValue =
+  | number
+  | string
+  | boolean
+  | IFont
+  | TObsStringList;
 
-/** 
+/**
  * OBS bindings don't describe a union of different sub-property
  * types so we define our own.
  */
-export declare type TSubPropertyType = 
-  obs.EEditableListType |
-  obs.EPathType         |
-  obs.ETextType         |
-  obs.ENumberType;
+export declare type TSubPropertyType =
+  | obs.EEditableListType
+  | obs.EPathType
+  | obs.ETextType
+  | obs.ENumberType;
 
 export enum ECustomTypes {
   /* We start at a thousand to avoid collision with obs types */
@@ -47,7 +54,9 @@ export interface IFormInput<TValueType> {
   subType?: TSubPropertyType;
 }
 
-export declare type TFormData = (IFormInput<TObsValue> | IListInput<TObsValue>)[];
+export declare type TFormData = (
+  | IFormInput<TObsValue>
+  | IListInput<TObsValue>)[];
 
 export interface IListInput<TValue> extends IFormInput<TValue> {
   options: IListOption<TValue>[];
@@ -106,45 +115,14 @@ export interface IElectronOpenDialogFilter {
   extensions: string[];
 }
 
-function parsePathFilters(filterStr: string): IElectronOpenDialogFilter[] {
-  const filters = _.compact(filterStr.split(';;'));
-
-  // Browser source uses *.*
-  if (filterStr === '*.*') {
-    return [
-      {
-        name: 'All Files',
-        extensions: ['*']
-      }
-    ];
-  }
-
-  return filters.map(filter => {
-    const match = filter.match(/^(.*)\((.*)\)$/);
-    const desc = _.trim(match[1]);
-    let types = match[2].split(' ');
-
-    types = types.map(type => {
-      return type.match(/^\*\.(.+)$/)[1];
-    });
-
-    // This is the format that electron file dialogs use
-    return {
-      name: desc,
-      extensions: types
-    };
-  });
-}
-
 export function getPropertiesFormData(obsSource: obs.IConfigurable): TFormData {
-
-  setupConfigurableDefaults(obsSource);
-  
   const formData: TFormData = [];
   const obsProps = obsSource.properties;
   const obsSettings = obsSource.settings;
 
   if (!obsProps) return null;
+
+  setupConfigurableDefaults(obsSource, obsProps, obsSettings);
 
   let obsProp = obsProps.first();
   do {
@@ -156,8 +134,6 @@ export function getPropertiesFormData(obsSource: obs.IConfigurable): TFormData {
       visible: obsProp.visible,
       type: obsProp.type
     };
-
-    // handle property details
 
     if (isListProperty(obsProp)) {
       const options: IListOption<any>[] = obsProp.details.items.map(option => {
@@ -201,17 +177,20 @@ export function getPropertiesFormData(obsSource: obs.IConfigurable): TFormData {
     }
 
     if (isFontProperty(obsProp)) {
-      (formItem as IFormInput<IFont>).value.path = obsSource.settings['custom_font'];
+      (formItem as IFormInput<IFont>).value.path =
+        obsSource.settings['custom_font'];
     }
 
     formData.push(formItem);
-  } while (obsProp = obsProp.next());
+  } while ((obsProp = obsProp.next()));
 
   return formData;
 }
 
-
-export function setPropertiesFormData(obsSource: obs.IConfigurable, form: TFormData) {
+export function setPropertiesFormData(
+  obsSource: obs.IConfigurable,
+  form: TFormData
+) {
   const buttons: IFormInput<boolean>[] = [];
   const formInputs: IFormInput<TObsValue>[] = [];
   const properties = obsSource.properties;
@@ -235,34 +214,46 @@ export function setPropertiesFormData(obsSource: obs.IConfigurable, form: TFormD
   });
 
   obsSource.update(settings);
+  /* Updating a configurable can change the
+   * values availabe in a property. Because
+   * of this, we need to make sure that all
+   * values in the settings are still valid */
+  setupConfigurableDefaults(obsSource, properties, settings);
 
   buttons.forEach(buttonInput => {
     if (!buttonInput.value) return;
-    const obsButtonProp = properties.get(buttonInput.name) as obs.IButtonProperty;
+    const obsButtonProp = properties.get(
+      buttonInput.name
+    ) as obs.IButtonProperty;
     obsButtonProp.buttonClicked(obsSource);
   });
 }
 
-
-export function setupConfigurableDefaults(obsSource: obs.IConfigurable) {
-  const propSettings = obsSource.settings;
+/* Passing a properties and settings object here
+ * prevents a copy and object creation which 
+ * also requires IPC. Highly recommended to
+ * pass all parameters. */
+export function setupConfigurableDefaults(
+  configurable: obs.IConfigurable,
+  properties?: obs.IProperties,
+  settings?: obs.ISettings
+) {
+  if (!settings) settings = configurable.settings;
+  if (!properties) properties = configurable.properties;
   const defaultSettings = {};
-  const properties = obsSource.properties;
 
   if (!properties) return;
 
   let obsProp = properties.first();
   do {
-    if (!isListProperty(obsProp)) 
-      continue;
+    if (!isListProperty(obsProp)) continue;
 
     const items = obsProp.details.items;
 
-    if (items.length === 0)
-      continue;
+    if (items.length === 0) continue;
 
     /* If setting isn't set at all, set to first element. */
-    if (propSettings[obsProp.name] === void 0) {
+    if (settings[obsProp.name] === void 0) {
       defaultSettings[obsProp.name] = items[0].value;
       continue;
     }
@@ -271,28 +262,22 @@ export function setupConfigurableDefaults(obsSource: obs.IConfigurable) {
 
     /* If there is a setting, make sure it's a valid item */
     for (let i = 0; i < items.length; ++i) {
-      if (propSettings[obsProp.name] === items[i].value) {
+      if (settings[obsProp.name] === items[i].value) {
         validItem = true;
         break;
       }
     }
 
-    if (!validItem)
-      defaultSettings[obsProp.name] = items[0].value;
-
-  } while (obsProp = obsProp.next());
+    if (!validItem) defaultSettings[obsProp.name] = items[0].value;
+  } while ((obsProp = obsProp.next()));
   const needUpdate = Object.keys(defaultSettings).length > 0;
-  if (needUpdate) obsSource.update(defaultSettings);
+  if (needUpdate) configurable.update(defaultSettings);
 }
 
-
 export abstract class Input<TValueType> extends Vue {
-
-  @Prop()
-  value: TValueType;
+  @Prop() value: TValueType;
 
   emitInput(eventData: TValueType) {
     this.$emit('input', eventData);
   }
-
 }

@@ -9,7 +9,11 @@ export class DBQueueManager<Content> {
   putQueues: Dictionary<Content[]>;
 
   constructor(path: string) {
-    this.db = new PouchDB(path, { adapter: 'websql' });
+    this.db = new PouchDB(path, {
+      adapter: 'websql',
+      revs_limit: 100
+    });
+
     this.revisions = {};
     this.putQueues = {};
   }
@@ -38,26 +42,23 @@ export class DBQueueManager<Content> {
     delete this.revisions[response.id];
   }
 
-  /* @arg1 exists - Will return the response after adding all of the document ids appropriately.
-   *
-   * @arg2 create - Will be called if the database doesn't exist and needs to be created.
-   *                If it doesn't exist, database will be created with no documents. */
+  /* @arg1 exists - Will return the response after adding
+   *                all of the document ids appropriately.
+   */
 
   async initialize(
     exists: (response: PouchDB.Core.AllDocsResponse<Content>) => void
   ) {
-    return this.db
-      .allDocs({ include_docs: true })
-      .then(result => {
-        for (let i = 0; i < result.total_rows; ++i) {
-          const entry = result.rows[i].doc;
+    return this.db.allDocs({ include_docs: true }).then(result => {
+      for (let i = 0; i < result.total_rows; ++i) {
+        const entry = result.rows[i].doc;
 
-          this.addQueue(entry._id);
-          this.revisions[entry._id] = entry._rev;
-        }
+        this.addQueue(entry._id);
+        this.revisions[entry._id] = entry._rev;
+      }
 
-        exists(result);
-      });
+      exists(result);
+    });
   }
 
   addQueue(id: string) {
@@ -92,6 +93,8 @@ export class DBQueueManager<Content> {
 
     /* The array is dead, just empty it */
     queue.length = 0;
+
+    console.log(`${id} - queued for deletion`);
 
     this.db.remove({ _id: id, _rev: this.revisions[id] }).then(response => {
       this.handleDeletion(response);

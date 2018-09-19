@@ -34,6 +34,7 @@ import { StreamingService } from 'services/streaming';
     ListInput,
     BoolInput,
     IntInput,
+    ComponentListForm,
     GenericForm
   }
 })
@@ -62,7 +63,7 @@ export default class AdvancedSettings extends Vue {
 
   get videoColorRangeValue() {
     return this.settingsStorageService.state.Video.ColorRange;
-  } 
+  }
 
   videoFormatOptions = [
     { value: EVideoFormat.NV12, description: 'NV12' },
@@ -104,10 +105,10 @@ export default class AdvancedSettings extends Vue {
     name: 'monitoring_device',
     description: 'Audio Monitoring Device',
     options: this.buildMonitoringDeviceOptions()
-  }
+  };
 
-  networkForm: TFormData = this.outputService.getPropertiesFormData(
-    this.rtmpOutputService.getOutputId()
+  networkForm = this.outputService.getComponentList(
+    'output_rtmp_output'
   );
 
   get streamDelayEnabled(): IFormInput<boolean> {
@@ -141,10 +142,14 @@ export default class AdvancedSettings extends Vue {
 
   get streamPreserve(): IFormInput<boolean> {
     return {
-        value: this.outputService.getDelayFlag(this.rtmpOutputService.getOutputId()) ? true : false,
-        name: 'delay_reconnect_preserve',
-        description: 'Preserve cutoff point when reconnecting'
-    }
+      value: this.outputService.getDelayFlag(
+        this.rtmpOutputService.getOutputId()
+      )
+        ? true
+        : false,
+      name: 'delay_reconnect_preserve',
+      description: 'Preserve cutoff point when reconnecting'
+    };
   }
 
   set streamPreserve(formData: IFormInput<boolean>) {

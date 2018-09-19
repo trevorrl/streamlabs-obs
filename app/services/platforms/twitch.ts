@@ -4,11 +4,12 @@ import { HostsService } from '../hosts';
 import { Inject } from '../../util/injector';
 import { handleErrors } from '../../util/requests';
 import { UserService } from '../user';
+import { RtmpOutputService } from 'services/rtmp-output';
 
 export class TwitchService extends Service implements IPlatformService {
-
   @Inject() hostsService: HostsService;
   @Inject() userService: UserService;
+  @Inject() rtmpOutputService: RtmpOutputService;
 
   authWindowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 600,
@@ -33,7 +34,6 @@ export class TwitchService extends Service implements IPlatformService {
     return this.userService.platform.id;
   }
 
-
   getHeaders(authorized = false): Headers {
     const headers = new Headers();
 
@@ -46,28 +46,27 @@ export class TwitchService extends Service implements IPlatformService {
     return headers;
   }
 
-
   // TODO: Some of this code could probably eventually be
   // shared with the Youtube platform.
   setupStreamSettings(auth: IPlatformAuth) {
-    console.warn('Not implemented.');
+    this.fetchStreamKey().then(key => {
+    });
   }
-
 
   fetchRawChannelInfo() {
     const headers = this.getHeaders(true);
-    const request = new Request('https://api.twitch.tv/kraken/channel', { headers });
+    const request = new Request('https://api.twitch.tv/kraken/channel', {
+      headers
+    });
 
     return fetch(request)
       .then(handleErrors)
       .then(response => response.json());
   }
 
-
   fetchStreamKey(): Promise<string> {
     return this.fetchRawChannelInfo().then(json => json.stream_key);
   }
-
 
   fetchChannelInfo(): Promise<IChannelInfo> {
     return this.fetchRawChannelInfo().then(json => {
@@ -78,10 +77,12 @@ export class TwitchService extends Service implements IPlatformService {
     });
   }
 
-
   fetchViewerCount(): Promise<number> {
     const headers = this.getHeaders();
-    const request = new Request(`https://api.twitch.tv/kraken/streams/${this.twitchId}`, { headers });
+    const request = new Request(
+      `https://api.twitch.tv/kraken/streams/${this.twitchId}`,
+      { headers }
+    );
 
     return fetch(request)
       .then(handleErrors)
@@ -89,15 +90,17 @@ export class TwitchService extends Service implements IPlatformService {
       .then(json => json.stream.viewers);
   }
 
-
   putChannelInfo(streamTitle: string, streamGame: string): Promise<boolean> {
     const headers = this.getHeaders(true);
-    const data = { channel: { status : streamTitle, game : streamGame } };
-    const request = new Request(`https://api.twitch.tv/kraken/channels/${this.twitchId}`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify(data)
-    });
+    const data = { channel: { status: streamTitle, game: streamGame } };
+    const request = new Request(
+      `https://api.twitch.tv/kraken/channels/${this.twitchId}`,
+      {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(data)
+      }
+    );
 
     return fetch(request)
       .then(handleErrors)
@@ -106,7 +109,10 @@ export class TwitchService extends Service implements IPlatformService {
 
   searchGames(searchString: string): Promise<IGame[]> {
     const headers = this.getHeaders();
-    const request = new Request(`https://api.twitch.tv/kraken/search/games?query=${searchString}`, { headers });
+    const request = new Request(
+      `https://api.twitch.tv/kraken/search/games?query=${searchString}`,
+      { headers }
+    );
 
     return fetch(request)
       .then(handleErrors)
@@ -116,20 +122,27 @@ export class TwitchService extends Service implements IPlatformService {
 
   getChatUrl(mode: string) {
     const nightMode = mode === 'day' ? 'popout' : 'darkpopout';
-    return Promise.resolve(`https://twitch.tv/${this.userService.platform.username}/chat?${nightMode}`);
+    return Promise.resolve(
+      `https://twitch.tv/${
+        this.userService.platform.username
+      }/chat?${nightMode}`
+    );
   }
 
   searchCommunities(searchString: string) {
     const headers = this.getHeaders();
 
     const data = {
-      requests:[
-        { indexName: 'community',
+      requests: [
+        {
+          indexName: 'community',
           params: `query=${searchString}&page=0&hitsPerPage=50&numericFilters=&facets=*&facetFilters=`
         }
-      ]};
+      ]
+    };
 
-    const communitySearchUrl = 'https://xluo134hor-dsn.algolia.net/1/indexes/*/queries' +
+    const communitySearchUrl =
+      'https://xluo134hor-dsn.algolia.net/1/indexes/*/queries' +
       '?x-algolia-application-id=XLUO134HOR&x-algolia-api-key=d157112f6fc2cab93ce4b01227c80a6d';
 
     const request = new Request(communitySearchUrl, {
@@ -143,5 +156,4 @@ export class TwitchService extends Service implements IPlatformService {
       .then(response => response.json())
       .then(json => json.results[0].hits);
   }
-
 }

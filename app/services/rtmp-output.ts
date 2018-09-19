@@ -6,6 +6,9 @@ import { Inject } from 'util/injector';
 import PouchDB from 'pouchdb';
 import { DBQueueManager } from 'services/common-config';
 import { remote } from 'electron';
+import { ServiceFactory } from 'services/obs-api';
+import { Subject } from 'rxjs/Subject';
+import { DefaultManager } from 'services/sources/properties-managers/default-manager';
 import path from 'path';
 
 export enum EProviderMode {
@@ -26,47 +29,42 @@ export enum EAudioEncoders {
 }
 
 const docId = 'rtmp-output-settings';
+const rtmpOutputId = 'output_rtmp_output';
+const rtmpCommonProviderId = 'provider_rtmp_common';
+const rtmpCustomProviderId = 'provider_rtmp_custom';
+const rtmpVideoEncoderId = 'provider_rtmp_custom';
+const rtmpH264EncoderId = 'encoder_rtmp_h264_video';
 
 declare type ExistingDatabaseDocument = PouchDB.Core.ExistingDocument<
   RtmpOutputContent
 >;
 
 interface RtmpOutputContent {
-  rtmpOutputId: string;
-
-  /* Here we make two encoders. They have two
-   * separate and different sets of settings.
-   * When the user changes from one to the other,
-   * it will keep the settings of the one he switched
-   * from, including the type of encoder. We simply,
-   * won't use it until it's asked of us. */
-  rtmpSimpleEncoderId: string;
-  rtmpAdvEncoderId: string;
   rtmpEncoderMode: EEncoderMode;
-
-  /* Similar for providers (services) */
-  rtmpCommonProviderId: string;
-  rtmpCustomProviderId: string;
   rtmpProviderMode: EProviderMode;
+  rtmpAudioBitrate: number;
 }
 
-interface RtmpOutputServiceState extends RtmpOutputContent {}
+interface RtmpOutputServiceState extends RtmpOutputContent {
+  rtmpCurrentAudioEncoderId: string;
+}
 
 export class RtmpOutputService extends StatefulService<RtmpOutputServiceState> {
-  private initialized = false;
+  outputIdChange = new Subject<void>();
 
+  streamPropertyManager: DefaultManager = null;
+  outputPropertyManager: DefaultManager = null;
+
+  private initialized = false;
   private db = new DBQueueManager<RtmpOutputContent>(
     path.join(remote.app.getPath('userData'), 'RtmpOutputService')
   );
 
   static initialState: RtmpOutputServiceState = {
     rtmpEncoderMode: EEncoderMode.Simple,
-    rtmpOutputId: '',
-    rtmpSimpleEncoderId: '',
-    rtmpAdvEncoderId: '',
-    rtmpCommonProviderId: '',
-    rtmpCustomProviderId: '',
-    rtmpProviderMode: EProviderMode.Common
+    rtmpProviderMode: EProviderMode.Common,
+    rtmpAudioBitrate: 128,
+    rtmpCurrentAudioEncoderId: ''
   };
 
   @Inject() outputService: OutputService;
@@ -74,70 +72,31 @@ export class RtmpOutputService extends StatefulService<RtmpOutputServiceState> {
   @Inject() encoderService: EncoderService;
 
   @mutation()
-  UPDATE_ENCODER_MODE(mode: EEncoderMode) {
-    this.state.rtmpEncoderMode = mode;
-  }
-
-  @mutation()
-  UPDATE_OUTPUT(uniqueId: string) {
-    this.state.rtmpOutputId = uniqueId;
-  }
-
-  @mutation()
-  UPDATE_SIMPLE_ENC(uniqueId: string) {
-    this.state.rtmpSimpleEncoderId = uniqueId;
-  }
-
-  @mutation()
-  UPDATE_ADV_ENC(uniqueId: string) {
-    this.state.rtmpAdvEncoderId = uniqueId;
-  }
-
-  @mutation()
-  UPDATE_COMMON_PROVIDER(uniqueId: string) {
-    this.state.rtmpCommonProviderId = uniqueId;
-  }
-
-  @mutation()
-  UPDATE_CUSTOM_PROVIDER(uniqueId: string) {
-    this.state.rtmpCustomProviderId = uniqueId;
-  }
-
-  @mutation()
   UPDATE_PROVIDER_MODE(mode: EProviderMode) {
     this.state.rtmpProviderMode = mode;
   }
 
+  @mutation()
+  UPDATE_AUDIO_BITRATE(bitrate: number) {
+    this.state.rtmpAudioBitrate = bitrate;
+  }
+
+  @mutation()
+  UPDATE_CURRENT_AUDIO_ENCODER(uniqueId: string) {
+    this.state.rtmpCurrentAudioEncoderId = uniqueId;
+  }
+
+  @mutation()
+  UPDATE_ENCODER_MODE(encoderMode: EEncoderMode) {
+    this.state.rtmpEncoderMode = encoderMode;
+  }
+
   private createConfig(): void {
-    console.log('CREATE CONFIG');
-    const outputId = OutputService.getUniqueId();
-    this.outputService.addOutput('rtmp_output', outputId);
-
-    const providerId = ProviderService.getUniqueId();
-    this.providerService.addProvider('rtmp_common', providerId);
-
-    const customProviderId = ProviderService.getUniqueId();
-    this.providerService.addProvider('rtmp_custom', customProviderId);
-
-    /* FIXME Some logic on the best encoder to choose goes here */
-    const audioEncoderId = EncoderService.getUniqueId();
-    this.encoderService.addAudioEncoder('ffmpeg_aac', audioEncoderId);
-
-    const videoEncoderId = EncoderService.getUniqueId();
-    this.encoderService.addVideoEncoder('obs_x264', videoEncoderId);
-
-    const advVideoEncoderId = EncoderService.getUniqueId();
-    this.encoderService.addVideoEncoder('obs_x264', advVideoEncoderId);
-
-    this.outputService.setOutputProvider(outputId, providerId);
-    this.outputService.setOutputVideoEncoder(outputId, videoEncoderId);
-    this.outputService.setOutputAudioEncoder(outputId, audioEncoderId, 0);
-
-    this.UPDATE_ADV_ENC(advVideoEncoderId);
-    this.UPDATE_SIMPLE_ENC(videoEncoderId);
-    this.UPDATE_COMMON_PROVIDER(providerId);
-    this.UPDATE_CUSTOM_PROVIDER(customProviderId);
-    this.UPDATE_OUTPUT(outputId);
+    this.outputService.addOutput('rtmp_output', 'output_rtmp_output');
+    this.outputService.addOutput('ftl_output', 'output_ftl_output');
+    this.providerService.addProvider('rtmp_common', 'provider_rtmp_common');
+    this.providerService.addProvider('rtmp_custom', 'provider_rtmp_custom');
+    this.encoderService.addVideoEncoder('obs_x264', 'encoder_rtmp_video_encoder');
 
     this.db.addQueue(docId);
     this.queueChange();
@@ -154,13 +113,8 @@ export class RtmpOutputService extends StatefulService<RtmpOutputServiceState> {
         continue;
       }
 
-      this.UPDATE_ENCODER_MODE(result.rtmpEncoderMode);
       this.UPDATE_PROVIDER_MODE(result.rtmpProviderMode);
-      this.UPDATE_ADV_ENC(result.rtmpAdvEncoderId);
-      this.UPDATE_SIMPLE_ENC(result.rtmpSimpleEncoderId);
-      this.UPDATE_COMMON_PROVIDER(result.rtmpCommonProviderId);
-      this.UPDATE_CUSTOM_PROVIDER(result.rtmpCustomProviderId);
-      this.UPDATE_OUTPUT(result.rtmpOutputId);
+      this.UPDATE_AUDIO_BITRATE(result.rtmpAudioBitrate);
 
       this.initialized = true;
     }
@@ -179,34 +133,92 @@ export class RtmpOutputService extends StatefulService<RtmpOutputServiceState> {
 
   private queueChange() {
     const change = {
-      ...this.state
+      rtmpEncoderMode: this.state.rtmpEncoderMode,
+      rtmpProviderMode: this.state.rtmpProviderMode,
+      rtmpAudioBitrate: this.state.rtmpAudioBitrate
     };
 
     this.db.queueChange(docId, change);
   }
-
+  
   start() {
-    return this.outputService.startOutput(this.state.rtmpOutputId);
+    /* A muse in this scenario is being used to create an output
+     * inspired by the settings of the muse but we still need to
+     * add our own settings, etc. We do this so we can buffer 
+     * changes to the object while they're active. Output isn't 
+     * quite similar since we actually use the original as the 
+     * in order to keep state associated with output. WEIRD I
+     * know but since we're so married to the OBS way, we can't
+     * seem to get a better design.*/
+    const videoEncoderMuse = this.encoderService.state[rtmpVideoEncoderId];
+    const commonProviderMuse = this.providerService.state[rtmpCommonProviderId];
+    const customProviderMuse = this.providerService.state[rtmpCustomProviderId];
+
+    const output = this.outputService.state[rtmpOutputId];
+    const supportedAudioCodecs = output.supportedAudioCodecs;
+
+    if (output.isActive) return false;
+
+    const bitrate = this.state.rtmpAudioBitrate;
+
+    /* We setup an audio encoder on the fly based on
+     * on the encoder bitrate provided. */
+    const encoderId = EncoderService.getUniqueId();
+
+    if (output.supportedAudioCodecs.includes('aac')) {
+      const encoderType = this.encoderService.getBestAACEncoderForBitrate(
+        bitrate
+      );
+
+      this.encoderService.addAudioEncoder(encoderType, encoderId, false, 0, {
+        bitrate
+      });
+
+      this.outputService.setOutputAudioEncoder(
+        rtmpOutputId,
+        encoderId,
+        0
+      );
+    } else if (output.supportedAudioCodecs.includes('opus')) {
+      this.encoderService.addAudioEncoder('ffmpeg_opus', encoderId, false, 0, {
+        bitrate
+      });
+
+      this.outputService.setOutputAudioEncoder(
+        rtmpOutputId,
+        encoderId,
+        0
+      );
+    } else {
+      console.warn(
+        `Supported audio codec (${supportedAudioCodecs.join()})
+        not found for output with type ${output.type}`
+      );
+    }
+
+    this.UPDATE_CURRENT_AUDIO_ENCODER(encoderId);
+
+    return this.outputService.startOutput(rtmpOutputId);
   }
 
   stop() {
-    this.outputService.stopOutput(this.state.rtmpOutputId);
-  }
+    this.outputService.stopOutput(rtmpOutputId);
 
-  getAudioEncoderId(): string {
-    return this.outputService.getAudioEncoder(this.state.rtmpOutputId);
+    /* Remove the audio encoder and reset */
+    this.outputService.setOutputAudioEncoder(rtmpOutputId, null, 0);
+    this.encoderService.removeAudioEncoder(
+      this.state.rtmpCurrentAudioEncoderId
+    );
+
+    this.UPDATE_CURRENT_AUDIO_ENCODER('');
   }
 
   getVideoEncoderId(): string {
-    return this.outputService.getVideoEncoder(this.state.rtmpOutputId);
+    return this.outputService.getVideoEncoder(rtmpOutputId);
   }
 
   getProviderId(): string {
-    return this.outputService.getOutputProvider(this.state.rtmpOutputId);
-  }
-
-  getOutputId() {
-    return this.state.rtmpOutputId;
+    return this.outputService.getOutputProvider(rtmpOutputId);
   }
 
   getCurrentMode(): EEncoderMode {
@@ -214,72 +226,41 @@ export class RtmpOutputService extends StatefulService<RtmpOutputServiceState> {
   }
 
   setEncoderMode(mode: EEncoderMode) {
-    const outputId = this.state.rtmpOutputId;
-
-    switch (mode) {
-      case EEncoderMode.Advanced: {
-        const encoderId = this.state.rtmpAdvEncoderId;
-        this.outputService.setOutputVideoEncoder(outputId, encoderId);
-        this.UPDATE_ENCODER_MODE(EEncoderMode.Advanced);
-        break;
-      }
-      case EEncoderMode.Simple:
-        const encoderId = this.state.rtmpSimpleEncoderId;
-        this.outputService.setOutputVideoEncoder(outputId, encoderId);
-        this.UPDATE_ENCODER_MODE(EEncoderMode.Simple);
-        break;
-      default:
-        console.warn('Unsupported mode given to setEncoderType');
-    }
-
+    this.UPDATE_ENCODER_MODE(mode);
     this.queueChange();
   }
 
   setVideoEncoderType(mode: EEncoderMode, type: string) {
-    let encoderId = null;
-    const newEncoderId = EncoderService.getUniqueId();
-
-    switch (mode) {
-      case EEncoderMode.Advanced:
-        encoderId = this.state.rtmpAdvEncoderId;
-        this.UPDATE_ADV_ENC(newEncoderId);
-        break;
-      case EEncoderMode.Simple:
-        encoderId = this.state.rtmpSimpleEncoderId;
-        this.UPDATE_SIMPLE_ENC(newEncoderId);
-        break;
-    }
-
-    this.encoderService.removeVideoEncoder(encoderId);
-    this.encoderService.addVideoEncoder(type, newEncoderId);
-
-    this.outputService.setOutputVideoEncoder(
-      this.state.rtmpOutputId,
-      newEncoderId
-    );
+    this.encoderService.removeVideoEncoder(rtmpVideoEncoderId);
+    this.encoderService.addVideoEncoder(type, rtmpVideoEncoderId);
 
     this.queueChange();
   }
 
   setProviderMode(mode: EProviderMode) {
-    const outputId = this.state.rtmpOutputId;
-
-    switch (mode) {
-      case EProviderMode.Custom: {
-        const providerId = this.state.rtmpCustomProviderId;
-        this.outputService.setOutputProvider(outputId, providerId);
-        break;
-      }
-      case EProviderMode.Common: {
-        const providerId = this.state.rtmpCommonProviderId;
-        this.outputService.setOutputProvider(outputId, providerId);
-        break;
-      }
-      default:
-        console.warn('Unsupported type given to setProviderType');
-    }
-
     this.UPDATE_PROVIDER_MODE(mode);
     this.queueChange();
+  }
+
+  private changeOutput(outputType: string) {
+    this.outputService.removeOutput(rtmpOutputId);
+    this.outputService.addOutput(outputType, rtmpOutputId);
+
+    this.queueChange();
+    this.outputIdChange.next();
+  }
+
+  setVideoBitrate(bitrate: number) {
+    const settings = { bitrate };
+
+    this.encoderService.updateSettings(rtmpH264EncoderId, settings);
+  }
+
+  setAudioBitrate(bitrate: number) {
+    this.UPDATE_AUDIO_BITRATE(bitrate);
+  }
+
+  subscribeOutputChange(cb: () => void) {
+    this.outputIdChange.subscribe(cb);
   }
 }

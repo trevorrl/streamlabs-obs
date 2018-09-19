@@ -6,31 +6,32 @@ import { EPropertyType, EPathType } from 'services/obs-api';
 
 /* For whatever reason, electron doesn't put this
  * into a type of its own but requires this specific type. */
-declare type TDialogProperties = 
-    'openFile' | 'openDirectory' | 'multiSelections' | 
-    'showHiddenFiles' | 'createDirectory' | 'promptToCreate' | 
-    'noResolveAliases' | 'treatPackageAsDirectory';
+declare type TDialogProperties =
+  | 'openFile'
+  | 'openDirectory'
+  | 'multiSelections'
+  | 'showHiddenFiles'
+  | 'createDirectory'
+  | 'promptToCreate'
+  | 'noResolveAliases'
+  | 'treatPackageAsDirectory';
 
 @Component
 class SettingsPathInput extends Vue {
-
-  @Prop()
-  value: string;
+  @Prop() value: string;
 
   @Prop({ default: (): Electron.FileFilter[] => [] })
   filters: Electron.FileFilter[];
 
-  @Prop()
-  description: string;
+  @Prop() description: string;
 
-  @Prop()
-  properties: TDialogProperties[];
+  @Prop() properties: TDialogProperties[];
 
   @Prop({ default: false })
   disabled: boolean;
 
   $refs: {
-    input: HTMLInputElement
+    input: HTMLInputElement;
   };
 
   showFileDialog() {
@@ -51,7 +52,6 @@ class SettingsPathInput extends Vue {
   change() {
     this.$emit('input', this.$refs.input.value);
   }
-
 }
 
 export default SettingsPathInput;

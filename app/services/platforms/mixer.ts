@@ -6,25 +6,27 @@ import { Inject } from '../../util/injector';
 import { handleErrors, requiresToken } from '../../util/requests';
 import { UserService } from '../user';
 import { integer } from 'aws-sdk/clients/cloudfront';
+import { RtmpOutputService } from '../rtmp-output';
 
 interface IMixerServiceState {
   typeIdMap: object;
 }
 
-export class MixerService extends StatefulService<IMixerServiceState> implements IPlatformService {
-
+export class MixerService extends StatefulService<IMixerServiceState>
+  implements IPlatformService {
   @Inject() hostsService: HostsService;
   @Inject() userService: UserService;
+  @Inject() rtmpOutputService: RtmpOutputService;
 
   authWindowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 800,
-    height: 800,
+    height: 800
   };
 
   apiBase = 'https://mixer.com/api/v1/';
 
   static initialState: IMixerServiceState = {
-    typeIdMap: {},
+    typeIdMap: {}
   };
 
   @mutation()
@@ -63,20 +65,22 @@ export class MixerService extends StatefulService<IMixerServiceState> implements
 
     headers.append('Content-Type', 'application/json');
 
-    if (authorized) headers.append('Authorization', `Bearer ${this.oauthToken}`);
+    if (authorized)
+      headers.append('Authorization', `Bearer ${this.oauthToken}`);
 
     return headers;
   }
 
   setupStreamSettings(auth: IPlatformAuth) {
     this.fetchStreamKey().then(key => {
-      // TODO FIXME
     });
   }
 
   fetchNewToken(): Promise<void> {
     const host = this.hostsService.streamlabs;
-    const url = `https://${host}/api/v5/slobs/mixer/refresh?token=${this.widgetToken}`;
+    const url = `https://${host}/api/v5/slobs/mixer/refresh?token=${
+      this.widgetToken
+    }`;
     const request = new Request(url);
 
     return fetch(request)
@@ -90,7 +94,10 @@ export class MixerService extends StatefulService<IMixerServiceState> implements
   @requiresToken()
   fetchRawChannelInfo() {
     const headers = this.getHeaders(true);
-    const request = new Request(`${this.apiBase}channels/${this.mixerUsername}/details`, { headers });
+    const request = new Request(
+      `${this.apiBase}channels/${this.mixerUsername}/details`,
+      { headers }
+    );
 
     return fetch(request)
       .then(handleErrors)
@@ -102,7 +109,9 @@ export class MixerService extends StatefulService<IMixerServiceState> implements
   }
 
   fetchStreamKey(): Promise<string> {
-    return this.fetchRawChannelInfo().then(json => `${json.id}-${json.streamKey}`);
+    return this.fetchRawChannelInfo().then(
+      json => `${json.id}-${json.streamKey}`
+    );
   }
 
   fetchChannelInfo(): Promise<IChannelInfo> {
@@ -123,7 +132,10 @@ export class MixerService extends StatefulService<IMixerServiceState> implements
   @requiresToken()
   fetchViewerCount(): Promise<number> {
     const headers = this.getHeaders();
-    const request = new Request(`${this.apiBase}channels/${this.mixerUsername}`, { headers });
+    const request = new Request(
+      `${this.apiBase}channels/${this.mixerUsername}`,
+      { headers }
+    );
 
     return fetch(request)
       .then(handleErrors)
@@ -154,7 +166,10 @@ export class MixerService extends StatefulService<IMixerServiceState> implements
   @requiresToken()
   searchGames(searchString: string): Promise<IGame[]> {
     const headers = this.getHeaders();
-    const request = new Request(`${this.apiBase}types?limit=10&noCount=1&scope=all&query=${searchString}`, { headers });
+    const request = new Request(
+      `${this.apiBase}types?limit=10&noCount=1&scope=all&query=${searchString}`,
+      { headers }
+    );
 
     return fetch(request)
       .then(handleErrors)
@@ -168,11 +183,10 @@ export class MixerService extends StatefulService<IMixerServiceState> implements
   }
 
   getChatUrl(mode: string): Promise<string> {
-    return new Promise((resolve) => {
-      this.fetchRawChannelInfo()
-        .then(json => {
-          resolve(`https://mixer.com/embed/chat/${json.id}`);
-        });
+    return new Promise(resolve => {
+      this.fetchRawChannelInfo().then(json => {
+        resolve(`https://mixer.com/embed/chat/${json.id}`);
+      });
     });
   }
 }

@@ -317,7 +317,7 @@ function startApp() {
 
   const workingDirectory =
     path.join(
-      app.getAppPath().replace('app.asar', 'app.asar.unpacked') + 
+      app.getAppPath().replace('app.asar', 'app.asar.unpacked') +
       '/node_modules/obs-studio-node');
 
   osn.Global.startup('en-US', workingDirectory + '/libobs');

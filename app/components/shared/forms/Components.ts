@@ -64,7 +64,9 @@ function componentFromText(subType: TSubPropertyType): typeof Vue {
 }
 
 export function propertyComponentForType(
-type: obs.EPropertyType | ECustomTypes, subType?: TSubPropertyType): typeof Vue {
+  type: obs.EPropertyType | ECustomTypes,
+  subType?: TSubPropertyType
+): typeof Vue {
   switch (type) {
     case obs.EPropertyType.Boolean:
       return Components.BoolInput;

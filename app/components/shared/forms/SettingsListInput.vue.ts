@@ -6,17 +6,14 @@ import Vue from 'vue';
 @Component({
   components: { Multiselect }
 })
-
 class SettingsListInput extends Vue {
-
   @Prop([String, Number, Object])
   value: TObsValue;
 
   @Prop({ default: true })
   showDescription: boolean;
 
-  @Prop()
-  description: string;
+  @Prop() description: string;
 
   @Prop({ default: false })
   disabled: boolean;
@@ -33,8 +30,7 @@ class SettingsListInput extends Vue {
   @Prop({ default: false })
   loading: boolean;
 
-  @Prop()
-  options: IListOption<TObsValue>[];
+  @Prop() options: IListOption<TObsValue>[];
 
   onInputHandler(option: IListOption<string>) {
     this.$emit('input', option);
