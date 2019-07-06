@@ -272,6 +272,16 @@ export default class SourceSelector extends Vue {
     selection.setSettings({ locked });
   }
 
+  hasSources() {
+    const sources = this.sourcesService.getSources();
+    console.log(sources.length);
+    if (sources.length > 3) {
+      return true; 
+    } else {
+      return false;
+    }
+  }
+
   get scene() {
     return this.scenesService.activeScene;
   }

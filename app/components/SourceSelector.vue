@@ -26,6 +26,10 @@
       </div>
     </div>
 
+    <div v-if="!hasSources()">
+      <span>Looks like you don't have any sources! Click the + button above to get started.</span>
+    </div>
+
     <sl-vue-tree
       :value="nodes"
       ref="slVueTree"
