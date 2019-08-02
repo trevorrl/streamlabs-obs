@@ -55,6 +55,7 @@ export interface IListMetadata<TValueType> extends IInputMetadata {
   internalSearch?: boolean;
   allowCustom?: Function;
   noResult?: string;
+  placeholder?: string;
 }
 
 export interface ITextMetadata extends IInputMetadata {
@@ -66,6 +67,11 @@ export interface ITextMetadata extends IInputMetadata {
   masked?: boolean;
   fullWidth?: boolean;
   blockReturn?: boolean;
+
+  /**
+   * When true will only emit on change events instead of input events
+   */
+  emitOnChange?: boolean;
 }
 
 export interface ISliderMetadata extends IInputMetadata {
@@ -92,6 +98,14 @@ export interface IMediaGalleryMetadata extends IInputMetadata {
 export interface IFileMetadata extends IInputMetadata {
   filters?: Electron.FileFilter[];
   directory?: boolean;
+}
+
+export interface ITextAreaMetadata extends IInputMetadata {
+  placeholder: string;
+  max: number;
+  min: number;
+  blockReturn: boolean;
+  rows: number;
 }
 
 // a helper for creating metadata for inputs

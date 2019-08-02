@@ -5,6 +5,7 @@ import AppsNav from '../AppsNav.vue';
 import NewsBanner from '../NewsBanner';
 import { ScenesService } from 'services/scenes';
 import { PlatformAppsService } from 'services/platform-apps';
+import { EditorCommandsService } from '../../app-services';
 import VueResize from 'vue-resize';
 Vue.use(VueResize);
 
@@ -15,7 +16,7 @@ import Chatbot from '../pages/Chatbot.vue';
 import PlatformAppStore from '../pages/PlatformAppStore.vue';
 import BrowseOverlays from 'components/pages/BrowseOverlays.vue';
 import Live from '../pages/Live.vue';
-import Onboarding from '../pages/Onboarding.vue';
+import Onboarding from '../pages/Onboarding';
 import TitleBar from '../TitleBar.vue';
 import { Inject } from '../../services/core/injector';
 import { CustomizationService } from 'services/customization';
@@ -27,7 +28,6 @@ import LiveDock from '../LiveDock.vue';
 import StudioFooter from '../StudioFooter.vue';
 import CustomLoader from '../CustomLoader';
 import PatchNotes from '../pages/PatchNotes.vue';
-import DesignSystem from '../pages/DesignSystem.vue';
 import PlatformAppMainPage from '../pages/PlatformAppMainPage.vue';
 import Help from '../pages/Help.vue';
 import electron from 'electron';
@@ -50,7 +50,6 @@ import CreatorSites from 'components/pages/CreatorSites';
     PatchNotes,
     NewsBanner,
     Chatbot,
-    DesignSystem,
     PlatformAppMainPage,
     PlatformAppStore,
     Help,
@@ -66,6 +65,7 @@ export default class Main extends Vue {
   @Inject() windowsService: WindowsService;
   @Inject() scenesService: ScenesService;
   @Inject() platformAppsService: PlatformAppsService;
+  @Inject() editorCommandsService: EditorCommandsService;
 
   mounted() {
     const dockWidth = this.customizationService.state.livedockSize;
@@ -133,13 +133,17 @@ export default class Main extends Vue {
   }
 
   onDropHandler(event: DragEvent) {
-    const files = event.dataTransfer.files;
+    const fileList = event.dataTransfer.files;
+    const files: string[] = [];
 
-    let fi = files.length;
-    while (fi--) {
-      const file = files.item(fi);
-      this.scenesService.activeScene.addFile(file.path);
-    }
+    let fi = fileList.length;
+    while (fi--) files.push(fileList.item(fi).path);
+
+    this.editorCommandsService.executeCommand(
+      'AddFilesCommand',
+      this.scenesService.activeSceneId,
+      files,
+    );
   }
 
   $refs: {
